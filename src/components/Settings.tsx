@@ -8,6 +8,7 @@ interface SettingsProps {
 }
 
 const Settings: React.FC<SettingsProps> = ({ darkMode, onToggleDarkMode }) => {
+  // --- General Settings State ---
   const [settings, setSettings] = useState({
     defaultCommission: '0.00',
     currency: 'USD',
@@ -26,6 +27,14 @@ const Settings: React.FC<SettingsProps> = ({ darkMode, onToggleDarkMode }) => {
   const [showDebugInfo, setShowDebugInfo] = useState(false);
   const [databasePath, setDatabasePath] = useState<string>('Loading...');
 
+  // --- Futures Contracts State ---
+  const [futuresContracts, setFuturesContracts] = useState<any[]>([]);
+  const [fcLoading, setFcLoading] = useState(false);
+  const [fcError, setFcError] = useState<string | null>(null);
+  const [editContract, setEditContract] = useState<any | null>(null);
+  const [newContract, setNewContract] = useState({ symbol: '', description: '', point_value: '', currency: 'USD' });
+  const [fcActionLoading, setFcActionLoading] = useState(false);
+
   const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 5000);
@@ -37,6 +46,7 @@ const Settings: React.FC<SettingsProps> = ({ darkMode, onToggleDarkMode }) => {
 
   useEffect(() => {
     loadSettings();
+    loadFuturesContracts();
     // Load database path after a short delay to ensure the main process is ready
     setTimeout(() => {
       loadDatabasePath();
@@ -57,6 +67,102 @@ const Settings: React.FC<SettingsProps> = ({ darkMode, onToggleDarkMode }) => {
       console.error('Failed to load settings:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Futures contracts methods
+  const loadFuturesContracts = async () => {
+    setFcLoading(true);
+    setFcError(null);
+    try {
+      if (window.electronAPI) {
+        const contracts = await window.electronAPI.getFuturesContracts();
+        setFuturesContracts(contracts);
+      }
+    } catch (err: any) {
+      setFcError('Failed to load contracts: ' + (err?.message || err));
+    } finally {
+      setFcLoading(false);
+    }
+  };
+
+  const handleAddContract = async () => {
+    setFcActionLoading(true);
+    setFcError(null);
+    try {
+      if (!newContract.symbol.trim() || !newContract.point_value) {
+        setFcError('Symbol and point value are required.');
+        setFcActionLoading(false);
+        return;
+      }
+      const contract = {
+        symbol: newContract.symbol.trim().toUpperCase(),
+        description: newContract.description,
+        point_value: parseFloat(newContract.point_value),
+        currency: newContract.currency || 'USD',
+      };
+      const res = await window.electronAPI.addFuturesContract(contract);
+      if (res.success) {
+        setNewContract({ symbol: '', description: '', point_value: '', currency: 'USD' });
+        loadFuturesContracts();
+      } else {
+        setFcError(res.error || 'Failed to add contract.');
+      }
+    } catch (err: any) {
+      setFcError('Failed to add contract: ' + (err?.message || err));
+    } finally {
+      setFcActionLoading(false);
+    }
+  };
+
+  const handleEditContract = (contract: any) => {
+    setEditContract({ ...contract });
+  };
+
+  const handleUpdateContract = async () => {
+    setFcActionLoading(true);
+    setFcError(null);
+    try {
+      if (!editContract.symbol.trim() || !editContract.point_value) {
+        setFcError('Symbol and point value are required.');
+        setFcActionLoading(false);
+        return;
+      }
+      const contract = {
+        symbol: editContract.symbol.trim().toUpperCase(),
+        description: editContract.description,
+        point_value: parseFloat(editContract.point_value),
+        currency: editContract.currency || 'USD',
+      };
+      const res = await window.electronAPI.updateFuturesContract(contract);
+      if (res.success) {
+        setEditContract(null);
+        loadFuturesContracts();
+      } else {
+        setFcError(res.error || 'Failed to update contract.');
+      }
+    } catch (err: any) {
+      setFcError('Failed to update contract: ' + (err?.message || err));
+    } finally {
+      setFcActionLoading(false);
+    }
+  };
+
+  const handleDeleteContract = async (symbol: string) => {
+    if (!window.confirm('Delete contract ' + symbol + '? This cannot be undone.')) return;
+    setFcActionLoading(true);
+    setFcError(null);
+    try {
+      const res = await window.electronAPI.deleteFuturesContract(symbol);
+      if (res.success) {
+        loadFuturesContracts();
+      } else {
+        setFcError(res.error || 'Failed to delete contract.');
+      }
+    } catch (err: any) {
+      setFcError('Failed to delete contract: ' + (err?.message || err));
+    } finally {
+      setFcActionLoading(false);
     }
   };
 

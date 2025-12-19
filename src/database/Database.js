@@ -69,6 +69,7 @@ class DatabaseManager {
         debugLogger.log('✅ Database connection test successful');
         
         this.createTables();
+        this.runMigrations();
         this.isNativeSQLite = true;
         this.isMemoryFallback = false;
         debugLogger.log('✅ Native SQLite database ready');
@@ -233,10 +234,23 @@ CREATE TABLE IF NOT EXISTS trades (
     notes TEXT,
     tags TEXT, -- JSON array of tags
     screenshots TEXT, -- JSON array of screenshot paths
-    asset_type TEXT NOT NULL CHECK (asset_type IN ('STOCK', 'OPTION', 'CRYPTO', 'FOREX')),
+    asset_type TEXT NOT NULL CHECK (asset_type IN ('STOCK', 'OPTION', 'CRYPTO', 'FOREX', 'FUTURES')),
     option_type TEXT CHECK (option_type IN ('CALL', 'PUT')),
     strike_price REAL,
     expiration_date TEXT,
+    point_value REAL,
+    contract_currency TEXT DEFAULT 'USD',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Futures contracts table for point-value mapping
+CREATE TABLE IF NOT EXISTS futures_contracts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT UNIQUE NOT NULL,
+    description TEXT,
+    point_value REAL NOT NULL,
+    currency TEXT DEFAULT 'USD',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -294,6 +308,28 @@ INSERT OR IGNORE INTO settings (key, value) VALUES
 ('default_commission', '0'),
 ('currency', 'USD'),
 ('timezone', 'America/New_York');
+
+-- Insert default futures contracts
+INSERT OR IGNORE INTO futures_contracts (symbol, description, point_value, currency) VALUES
+('ES', 'S&P 500 E-mini', 50, 'USD'),
+('NQ', 'Nasdaq 100 E-mini', 20, 'USD'),
+('NQH5', 'Nasdaq 100 E-mini (March 2025)', 20, 'USD'),
+('NQZ5', 'Nasdaq 100 E-mini (December 2025)', 20, 'USD'),
+('YM', 'Dow E-mini', 5, 'USD'),
+('RTY', 'Russell 2000 E-mini', 50, 'USD'),
+('CL', 'Crude Oil', 1000, 'USD'),
+('GC', 'Gold', 100, 'USD'),
+('ZB', '30-Year Treasury', 1000, 'USD'),
+('ZN', '10-Year Treasury', 1000, 'USD'),
+('6E', 'Euro FX', 125000, 'USD'),
+('6J', 'Japanese Yen', 12500, 'USD'),
+('MES', 'Micro S&P 500 E-mini', 5, 'USD'),
+('MNQ', 'Micro Nasdaq 100 E-mini', 2, 'USD'),
+('MYM', 'Micro Dow E-mini', 0.5, 'USD'),
+('M2K', 'Micro Russell 2000 E-mini', 5, 'USD'),
+('MCL', 'Micro Crude Oil', 100, 'USD'),
+('MGC', 'Micro Gold', 10, 'USD'),
+('SIL', 'Micro Silver', 50, 'USD');
 `;
     
     try {
@@ -302,6 +338,90 @@ INSERT OR IGNORE INTO settings (key, value) VALUES
     } catch (err) {
       console.error('Error creating tables from embedded schema:', err);
       throw err;
+    }
+  }
+
+  // Run database migrations to add new columns if they don't exist
+  runMigrations() {
+    try {
+      if (!this.db) return; // Skip if using JSON fallback
+      
+      debugLogger.log('Running database migrations...');
+      
+      // Add point_value column if it doesn't exist
+      try {
+        this.db.prepare('ALTER TABLE trades ADD COLUMN point_value REAL').run();
+        debugLogger.log('✅ Added point_value column to trades table');
+      } catch (e) {
+        if (!e.message.includes('duplicate column')) {
+          debugLogger.log('point_value column already exists');
+        }
+      }
+      
+      // Add contract_currency column if it doesn't exist
+      try {
+        this.db.prepare('ALTER TABLE trades ADD COLUMN contract_currency TEXT DEFAULT \'USD\'').run();
+        debugLogger.log('✅ Added contract_currency column to trades table');
+      } catch (e) {
+        if (!e.message.includes('duplicate column')) {
+          debugLogger.log('contract_currency column already exists');
+        }
+      }
+      
+      // Create futures_contracts table if it doesn't exist
+      try {
+        const checkTable = this.db.prepare(`
+          SELECT name FROM sqlite_master WHERE type='table' AND name='futures_contracts'
+        `).get();
+        
+        if (!checkTable) {
+          this.db.prepare(`
+            CREATE TABLE IF NOT EXISTS futures_contracts (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              symbol TEXT UNIQUE NOT NULL,
+              description TEXT,
+              point_value REAL NOT NULL,
+              currency TEXT DEFAULT 'USD',
+              created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+              updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+          `).run();
+          debugLogger.log('✅ Created futures_contracts table');
+          
+          // Insert default futures contracts
+          const defaultContracts = [
+            ['ES', 'S&P 500 E-mini', 50, 'USD'],
+            ['NQ', 'Nasdaq 100 E-mini', 20, 'USD'],
+            ['NQH5', 'Nasdaq 100 E-mini (March 2025)', 20, 'USD'],
+            ['NQZ5', 'Nasdaq 100 E-mini (December 2025)', 20, 'USD'],
+            ['YM', 'Dow E-mini', 5, 'USD'],
+            ['RTY', 'Russell 2000 E-mini', 50, 'USD'],
+            ['CL', 'Crude Oil', 1000, 'USD'],
+            ['GC', 'Gold', 100, 'USD'],
+            ['MES', 'Micro S&P 500 E-mini', 5, 'USD'],
+            ['MNQ', 'Micro Nasdaq 100 E-mini', 2, 'USD'],
+            ['MYM', 'Micro Dow E-mini', 0.5, 'USD'],
+            ['M2K', 'Micro Russell 2000 E-mini', 5, 'USD']
+          ];
+          
+          const insertStmt = this.db.prepare(`
+            INSERT OR IGNORE INTO futures_contracts (symbol, description, point_value, currency) 
+            VALUES (?, ?, ?, ?)
+          `);
+          
+          for (const [symbol, desc, pointValue, currency] of defaultContracts) {
+            insertStmt.run(symbol, desc, pointValue, currency);
+          }
+          debugLogger.log('✅ Inserted default futures contracts');
+        }
+      } catch (e) {
+        debugLogger.log('futures_contracts table migration:', e.message);
+      }
+      
+      debugLogger.log('✅ All migrations completed');
+    } catch (err) {
+      console.error('Error running migrations:', err);
+      // Don't throw - migrations are non-critical
     }
   }
 
@@ -340,8 +460,8 @@ INSERT OR IGNORE INTO settings (key, value) VALUES
           INSERT INTO trades (
             symbol, side, quantity, entry_price, exit_price, entry_date, exit_date,
             pnl, commission, strategy, notes, tags, screenshots, asset_type,
-            option_type, strike_price, expiration_date
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            option_type, strike_price, expiration_date, point_value, contract_currency
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         
         // Convert undefined values to null and handle Date objects
@@ -375,7 +495,9 @@ INSERT OR IGNORE INTO settings (key, value) VALUES
           trade.assetType,
           trade.optionType ?? null,
           trade.strikePrice ?? null,
-          trade.expirationDate ? formatDateForStorage(trade.expirationDate) : null
+          trade.expirationDate ? formatDateForStorage(trade.expirationDate) : null,
+          trade.pointValue ?? null,
+          trade.contractCurrency ?? 'USD'
         );
         
         resolve({ id: result.lastInsertRowid, ...trade });

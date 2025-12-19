@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Trade } from '../types/Trade';
 import CSVImport from './CSVImport';
@@ -16,6 +16,29 @@ const TradeList: React.FC<TradeListProps> = ({ trades, onUpdate, onDelete, onAdd
   const [sortBy, setSortBy] = useState<'entryDate' | 'symbol' | 'pnl'>('entryDate');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [showImport, setShowImport] = useState(false);
+  
+  // @ts-ignore - window.electronAPI futures methods are exposed via preload.js
+  // Futures contracts mapping
+  const [futuresContracts, setFuturesContracts] = useState<Record<string, { point_value: number; description: string; currency: string }>>({});
+
+  useEffect(() => {
+    // Fetch futures contracts mapping on mount
+    const fetchContracts = async () => {
+      if (window.electronAPI && (window.electronAPI as any).getFuturesContracts) {
+        const contracts = await (window.electronAPI as any).getFuturesContracts();
+        const map: Record<string, { point_value: number; description: string; currency: string }> = {};
+        contracts.forEach((c: any) => {
+          map[c.symbol.toUpperCase()] = {
+            point_value: c.point_value,
+            description: c.description,
+            currency: c.currency || 'USD',
+          };
+        });
+        setFuturesContracts(map);
+      }
+    };
+    fetchContracts();
+  }, []);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -199,14 +222,23 @@ const TradeList: React.FC<TradeListProps> = ({ trades, onUpdate, onDelete, onAdd
               <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {paginatedTrades.map((trade) => (
                   <tr key={trade.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <span className="font-medium text-gray-900 dark:text-white">
-                          {trade.symbol}
-                        </span>
-                        <span className="ml-2 text-xs bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 px-2 py-1 rounded">
-                          {trade.assetType}
-                        </span>
+                    <td className="px-6 py-4">
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-900 dark:text-white">
+                            {trade.symbol}
+                          </span>
+                          <span className="text-xs bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 px-2 py-1 rounded">
+                            {trade.assetType}
+                          </span>
+                        </div>
+                        {trade.assetType === 'FUTURES' && futuresContracts[trade.symbol?.toUpperCase()] && (
+                          <div className="text-xs text-blue-700 dark:text-blue-300">
+                            <span title={futuresContracts[trade.symbol.toUpperCase()].description || ''}>
+                              Pt: {futuresContracts[trade.symbol.toUpperCase()].point_value} {futuresContracts[trade.symbol.toUpperCase()].currency}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">

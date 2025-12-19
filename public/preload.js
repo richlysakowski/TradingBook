@@ -1,6 +1,12 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  // Futures contracts management
+  getFuturesContracts: () => ipcRenderer.invoke('get-futures-contracts'),
+  addFuturesContract: (contract) => ipcRenderer.invoke('add-futures-contract', contract),
+  updateFuturesContract: (contract) => ipcRenderer.invoke('update-futures-contract', contract),
+  deleteFuturesContract: (symbol) => ipcRenderer.invoke('delete-futures-contract', symbol),
+  getFuturesPointValue: (symbol) => ipcRenderer.invoke('get-futures-point-value', symbol),
   // File operations
   onImportTrades: (callback) => ipcRenderer.on('import-trades', callback),
   onExportData: (callback) => ipcRenderer.on('export-data', callback),

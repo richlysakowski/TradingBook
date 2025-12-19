@@ -1,0 +1,32 @@
+# NQ Futures Real-Time Simulation - Conda Environment
+# 
+# Create:    conda env create -f environment.yml
+# Activate:  conda activate nq_sims_city
+# Update:    conda env update -f environment.yml --prune
+
+name: nq_sims_city
+
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  # Python version
+  - python>=3.11
+  
+  # Core packages (available in conda-forge)
+  - numpy>=2.0                    # Latest numpy 2.x
+  - polars>=1.30                  # Fast DataFrame library (replaces pandas)
+  - pyarrow>=14.0                 # Parquet support, used by polars
+  - pandas>=2.0                   # Still needed for some Streamlit components
+  
+  # Streamlit (available in conda-forge)
+  - streamlit>=1.50
+  
+  # pip packages (not available in conda)
+  - pip
+  - pip:
+    - streamlit-echarts>=0.4.0    # ECharts visualization
+    - streamlit-autorefresh>=1.0.1 # Auto-refresh component
+    - streamlit-slickgrid>=1.0.0  # Advanced tabular grid (SlickGrid)
+

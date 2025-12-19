@@ -13,7 +13,11 @@ export interface Trade {
   notes?: string;
   tags?: string[];
   screenshots?: string[];
-  assetType: 'STOCK' | 'OPTION' | 'CRYPTO' | 'FOREX';
+  assetType: 'STOCK' | 'OPTION' | 'CRYPTO' | 'FOREX' | 'FUTURES';
+  // Futures-specific fields
+  pointValue?: string | number;
+  contractDesc?: string;
+  contractCurrency?: string;
   // Options specific
   optionType?: 'CALL' | 'PUT';
   strikePrice?: number;
@@ -147,6 +151,13 @@ declare global {
       
       // Cleanup function
       removeDatabaseListeners: () => void;
+      
+      // Futures contracts management
+      getFuturesContracts: () => Promise<Array<{ symbol: string; description: string; point_value: number; currency: string }>>;
+      addFuturesContract: (contract: { symbol: string; description: string; point_value: number; currency: string }) => Promise<{ success: boolean; id?: number; error?: string }>;
+      updateFuturesContract: (contract: { symbol: string; description: string; point_value: number; currency: string }) => Promise<{ success: boolean; error?: string }>;
+      deleteFuturesContract: (symbol: string) => Promise<{ success: boolean; error?: string }>;
+      getFuturesPointValue: (symbol: string) => Promise<number | null>;
     };
   }
 }

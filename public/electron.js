@@ -1,3 +1,63 @@
+// --- Futures Contracts IPC Handlers ---
+ipcMain.handle('get-futures-contracts', async () => {
+  try {
+    if (!db || !db.db) throw new Error('Database not initialized');
+    const stmt = db.db.prepare('SELECT * FROM futures_contracts ORDER BY symbol ASC');
+    return stmt.all();
+  } catch (err) {
+    debugLogger.log('Error in get-futures-contracts IPC:', err.message);
+    return [];
+  }
+});
+
+ipcMain.handle('add-futures-contract', async (event, contract) => {
+  try {
+    if (!db || !db.db) throw new Error('Database not initialized');
+    const stmt = db.db.prepare('INSERT INTO futures_contracts (symbol, description, point_value, currency) VALUES (?, ?, ?, ?)');
+    const result = stmt.run(contract.symbol.toUpperCase(), contract.description, contract.point_value, contract.currency || 'USD');
+    return { success: true, id: result.lastInsertRowid };
+  } catch (err) {
+    debugLogger.log('Error in add-futures-contract IPC:', err.message);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('update-futures-contract', async (event, contract) => {
+  try {
+    if (!db || !db.db) throw new Error('Database not initialized');
+    const stmt = db.db.prepare('UPDATE futures_contracts SET description = ?, point_value = ?, currency = ?, updated_at = CURRENT_TIMESTAMP WHERE symbol = ?');
+    stmt.run(contract.description, contract.point_value, contract.currency || 'USD', contract.symbol.toUpperCase());
+    return { success: true };
+  } catch (err) {
+    debugLogger.log('Error in update-futures-contract IPC:', err.message);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('delete-futures-contract', async (event, symbol) => {
+  try {
+    if (!db || !db.db) throw new Error('Database not initialized');
+    const stmt = db.db.prepare('DELETE FROM futures_contracts WHERE symbol = ?');
+    stmt.run(symbol.toUpperCase());
+    return { success: true };
+  } catch (err) {
+    debugLogger.log('Error in delete-futures-contract IPC:', err.message);
+    return { success: false, error: err.message };
+  }
+});
+// IPC handler to get futures contract point value by symbol
+ipcMain.handle('get-futures-point-value', async (event, symbol) => {
+  try {
+    if (!db || !db.db) throw new Error('Database not initialized');
+    // Query the futures_contracts table for the symbol (case-insensitive)
+    const stmt = db.db.prepare('SELECT point_value FROM futures_contracts WHERE UPPER(symbol) = ?');
+    const row = stmt.get(symbol.toUpperCase());
+    return row ? row.point_value : null;
+  } catch (err) {
+    debugLogger.log('Error in get-futures-point-value IPC:', err.message);
+    return null;
+  }
+});
 const { app, BrowserWindow, Menu, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const isDev = require('electron-is-dev');

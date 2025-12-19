@@ -116,7 +116,46 @@ const CSVImport: React.FC<CSVImportProps> = ({ onImport, onClose }) => {
     return rows;
   };
 
-  const convertSchwabRowToTrade = (row: SchwabCSVRow, index: number): Omit<Trade, 'id'> | null => {
+  // Helper to check if symbol is a futures contract (including micro contracts)
+  const isFuturesSymbol = (symbol: string) => {
+    const futuresSymbols = [
+      'ES', 'NQ', 'YM', 'RTY', 'CL', 'GC', 'ZB', 'ZN', '6E', '6J',
+      'MES', 'MNQ', 'MYM', 'M2K', 'MCL', 'MGC', 'SIL'
+    ];
+    // Allow for / prefix (e.g., /ES, /MNQ)
+    const clean = symbol.replace(/^\//, '').toUpperCase();
+    
+    // Check for exact match first
+    if (futuresSymbols.includes(clean)) {
+      return true;
+    }
+    
+    // Check if it starts with a futures symbol and has month/year code (e.g., NQH5, ESZ5, NQZ5)
+    // Futures symbols typically have: base symbol (ES, NQ, etc.) + month code (H=March, Z=December) + year digit
+    const futuresPatterns = /^(ES|NQ|YM|RTY|CL|GC|ZB|ZN|6E|6J|MES|MNQ|MYM|M2K|MCL|MGC|SIL)[A-Z]\d{1,2}$/;
+    return futuresPatterns.test(clean);
+  };
+
+  // Async helper to get point value for a futures symbol
+  const getFuturesPointValue = async (symbol: string): Promise<number | null> => {
+    try {
+      if (!window.electronAPI || !window.electronAPI.getFuturesPointValue) {
+        debugLogger.log('⚠️ window.electronAPI.getFuturesPointValue not available');
+        return null;
+      }
+      const cleanSymbol = symbol.replace(/^\//, '').toUpperCase();
+      debugLogger.log(`🔍 Fetching point value for ${cleanSymbol}...`);
+      const pointValue = await window.electronAPI.getFuturesPointValue(cleanSymbol);
+      debugLogger.log(`✅ Got point value for ${cleanSymbol}: ${pointValue}`);
+      return pointValue;
+    } catch (e) {
+      debugLogger.log(`❌ Error fetching point value:`, e);
+      return null;
+    }
+  };
+
+  // Updated to async for futures support
+  const convertSchwabRowToTrade = async (row: SchwabCSVRow, index: number): Promise<Omit<Trade, 'id'> | null> => {
     debugLogger.log(`🔍 Processing row ${index + 2}:`, row);
     
     // Skip non-trading actions first
@@ -125,7 +164,13 @@ const CSVImport: React.FC<CSVImportProps> = ({ onImport, onClose }) => {
     
     debugLogger.log(`📊 Row ${index + 2}: Action="${action}", Symbol="${symbol}"`);
     
-    if (!action || !['Buy', 'Sell'].includes(action)) {
+    // Support both stock (Buy/Sell) and futures (Buy to Open/Sell to Close, etc.) actions
+    const buyPatterns = /^buy/i;
+    const sellPatterns = /^sell/i;
+    const isBuyAction = buyPatterns.test(action);
+    const isSellAction = sellPatterns.test(action);
+    
+    if (!action || (!isBuyAction && !isSellAction)) {
       debugLogger.log(`⏭️ Row ${index + 2}: Skipping non-trading action - Action: "${action}"`);
       return null;
     }
@@ -199,11 +244,22 @@ const CSVImport: React.FC<CSVImportProps> = ({ onImport, onClose }) => {
       }
 
       // Determine side and asset type
-      const side = action.toUpperCase() as 'BUY' | 'SELL';
-      let assetType: 'STOCK' | 'OPTION' | 'CRYPTO' | 'FOREX' = 'STOCK';
-      
+      const side = isBuyAction ? 'BUY' : 'SELL' as 'BUY' | 'SELL';
+
+      let assetType: 'STOCK' | 'OPTION' | 'CRYPTO' | 'FOREX' | 'FUTURES' = 'STOCK';
       const upperSymbol = symbol.toUpperCase();
-      if (upperSymbol.includes('/') || ['EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'NZD'].some(curr => upperSymbol.includes(curr))) {
+      let pointValue: number | null = null;
+      let notes = `Imported from Schwab CSV - ${String(row.Description || '').trim()}`.trim();
+
+      if (isFuturesSymbol(upperSymbol)) {
+        assetType = 'FUTURES';
+        pointValue = await getFuturesPointValue(upperSymbol);
+        if (pointValue) {
+          notes += ` | Point Value: ${pointValue}`;
+        } else {
+          notes += ' | Point Value: NOT FOUND';
+        }
+      } else if (upperSymbol.includes('/') || ['EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'NZD'].some(curr => upperSymbol.includes(curr))) {
         assetType = 'FOREX';
       } else if (['BTC', 'ETH', 'DOGE', 'ADA', 'SOL'].some(crypto => upperSymbol.includes(crypto))) {
         assetType = 'CRYPTO';
@@ -217,7 +273,11 @@ const CSVImport: React.FC<CSVImportProps> = ({ onImport, onClose }) => {
         entryDate,
         commission,
         assetType,
-        notes: `Imported from Schwab CSV - ${String(row.Description || '').trim()}`.trim()
+        notes,
+        pointValue: assetType === 'FUTURES' && pointValue ? pointValue : undefined,
+        optionType: undefined,
+        strikePrice: undefined,
+        expirationDate: undefined
       };
 
       // Debug validation before returning
@@ -257,6 +317,7 @@ const CSVImport: React.FC<CSVImportProps> = ({ onImport, onClose }) => {
     }
   };
 
+  // Updated to handle async futures logic
   const handleParseFile = async () => {
     if (!file) return;
 
@@ -271,13 +332,15 @@ const CSVImport: React.FC<CSVImportProps> = ({ onImport, onClose }) => {
       debugLogger.log('Parsed CSV rows count:', csvRows.length);
       debugLogger.log('First row sample:', csvRows[0]);
       
+
       const trades: Omit<Trade, 'id'>[] = [];
       const parseErrors: string[] = [];
 
-      csvRows.forEach((row, index) => {
+      for (let index = 0; index < csvRows.length; index++) {
+        const row = csvRows[index];
         try {
           debugLogger.log(`🔍 Processing row ${index + 2}:`, row);
-          const trade = convertSchwabRowToTrade(row, index);
+          const trade = await convertSchwabRowToTrade(row, index);
           if (trade) {
             trades.push(trade);
             debugLogger.log(`✅ Row ${index + 2}: Successfully parsed trade for ${trade.symbol}`);
@@ -288,12 +351,11 @@ const CSVImport: React.FC<CSVImportProps> = ({ onImport, onClose }) => {
           const errorMsg = error instanceof Error ? error.message : `Row ${index + 2}: Unknown error`;
           console.error('❌ Parse error:', errorMsg);
           console.error('Raw row data:', row);
-          
           // Add detailed error info to UI
           const detailedError = `Line ${index + 2}: ${errorMsg} | Raw data: ${JSON.stringify(row).substring(0, 200)}`;
           parseErrors.push(detailedError);
         }
-      });
+      }
 
       debugLogger.log(`📊 Parsing completed: ${trades.length} successful trades, ${parseErrors.length} errors`);
 
@@ -320,10 +382,15 @@ const CSVImport: React.FC<CSVImportProps> = ({ onImport, onClose }) => {
 
     setIsLoading(true);
     try {
+      debugLogger.log(`🚀 Starting import of ${parsedTrades.length} trades...`);
       await onImport(parsedTrades);
+      debugLogger.log(`✅ Import completed successfully!`);
       onClose();
     } catch (error) {
-      setErrors([error instanceof Error ? error.message : 'Failed to import trades']);
+      const errorMsg = error instanceof Error ? error.message : 'Failed to import trades';
+      debugLogger.log(`❌ Import failed:`, errorMsg);
+      console.error('Import error:', error);
+      setErrors([errorMsg]);
     } finally {
       setIsLoading(false);
     }

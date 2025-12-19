@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+// @ts-ignore
+const { ipcRenderer } = window.require ? window.require('electron') : { ipcRenderer: null };
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Trade } from '../types/Trade';
 
@@ -36,11 +38,41 @@ const TradeForm: React.FC<TradeFormProps> = ({ trades = [], onSubmit, settings }
     commission: settings?.defaultCommission || '0.00',
     strategy: '',
     notes: '',
-    assetType: 'STOCK' as 'STOCK' | 'OPTION' | 'CRYPTO' | 'FOREX',
+    assetType: 'STOCK' as 'STOCK' | 'OPTION' | 'CRYPTO' | 'FOREX' | 'FUTURES',
+    pointValue: '' as string | number,
     optionType: '' as 'CALL' | 'PUT' | '',
     strikePrice: '',
     expirationDate: ''
   });
+
+  // Futures point value state and effect (must be at top level)
+  const [futuresPointValue, setFuturesPointValue] = useState<string>('');
+  const [futuresPointValueError, setFuturesPointValueError] = useState<string>('');
+  useEffect(() => {
+    const fetchPointValue = async () => {
+      if (formData.assetType === 'FUTURES' && formData.symbol.trim()) {
+        if (!ipcRenderer) return;
+        try {
+          const val = await ipcRenderer.invoke('get-futures-point-value', formData.symbol.replace(/^\//, '').toUpperCase());
+          if (val) {
+            setFuturesPointValue(val.toString());
+            setFuturesPointValueError('');
+            setFormData(prev => ({ ...prev, pointValue: val.toString() }));
+          } else {
+            setFuturesPointValue('');
+            setFuturesPointValueError('No point value found for this symbol. Please enter manually.');
+          }
+        } catch {
+          setFuturesPointValue('');
+          setFuturesPointValueError('Error fetching point value.');
+        }
+      } else {
+        setFuturesPointValue('');
+        setFuturesPointValueError('');
+      }
+    };
+    fetchPointValue();
+  }, [formData.assetType, formData.symbol]);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -92,6 +124,7 @@ const TradeForm: React.FC<TradeFormProps> = ({ trades = [], onSubmit, settings }
         strategy: existingTrade.strategy || '',
         notes: existingTrade.notes || '',
         assetType: existingTrade.assetType || 'STOCK',
+        pointValue: existingTrade.pointValue || '',
         optionType: existingTrade.optionType || '',
         strikePrice: (existingTrade.strikePrice ?? 0) !== 0 ? existingTrade.strikePrice?.toString() || '' : '',
         expirationDate: expirationDate ? formatDateOnlyForInput(expirationDate) : ''
@@ -114,6 +147,11 @@ const TradeForm: React.FC<TradeFormProps> = ({ trades = [], onSubmit, settings }
       if (!formData.expirationDate) newErrors.expirationDate = 'Expiration date is required';
     }
 
+    if (formData.assetType === 'FUTURES') {
+      if (!formData.pointValue || isNaN(Number(formData.pointValue)) || Number(formData.pointValue) <= 0) {
+        newErrors.pointValue = 'Valid point value is required for futures.';
+      }
+    }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -127,12 +165,21 @@ const TradeForm: React.FC<TradeFormProps> = ({ trades = [], onSubmit, settings }
     if (!quantity || !entryPrice || !exitPrice) return undefined;
 
     let pnl = 0;
-    if (formData.side === 'BUY' || formData.side === 'LONG') {
-      pnl = (exitPrice - entryPrice) * quantity - commission;
+    if (formData.assetType === 'FUTURES') {
+      const pointValue = Number(formData.pointValue) || 0;
+      if (!pointValue) return undefined;
+      if (formData.side === 'BUY' || formData.side === 'LONG') {
+        pnl = (exitPrice - entryPrice) * quantity * pointValue - commission;
+      } else {
+        pnl = (entryPrice - exitPrice) * quantity * pointValue - commission;
+      }
     } else {
-      pnl = (entryPrice - exitPrice) * quantity - commission;
+      if (formData.side === 'BUY' || formData.side === 'LONG') {
+        pnl = (exitPrice - entryPrice) * quantity - commission;
+      } else {
+        pnl = (entryPrice - exitPrice) * quantity - commission;
+      }
     }
-
     return pnl;
   };
 
@@ -154,6 +201,7 @@ const TradeForm: React.FC<TradeFormProps> = ({ trades = [], onSubmit, settings }
       strategy: formData.strategy || undefined,
       notes: formData.notes || undefined,
       assetType: formData.assetType,
+      pointValue: formData.assetType === 'FUTURES' ? Number(formData.pointValue) : undefined,
       optionType: formData.assetType === 'OPTION' && formData.optionType ? formData.optionType as 'CALL' | 'PUT' : undefined,
       strikePrice: formData.assetType === 'OPTION' ? Number(formData.strikePrice) : undefined,
       expirationDate: formData.assetType === 'OPTION' ? new Date(formData.expirationDate) : undefined
@@ -242,7 +290,35 @@ const TradeForm: React.FC<TradeFormProps> = ({ trades = [], onSubmit, settings }
                 <option value="OPTION">Option</option>
                 <option value="CRYPTO">Crypto</option>
                 <option value="FOREX">Forex</option>
+                <option value="FUTURES">Futures</option>
               </select>
+                      {/* Futures-specific fields */}
+                      {formData.assetType === 'FUTURES' && (
+                        <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+                          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Futures Details</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                Point Value
+                              </label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={formData.pointValue}
+                                onChange={e => handleInputChange('pointValue', e.target.value)}
+                                className={`mt-1 block w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white ${
+                                  errors.pointValue ? 'border-red-300 dark:border-red-600' : 'border-gray-300 dark:border-gray-600'
+                                }`}
+                                placeholder="e.g. 50 for ES"
+                              />
+                              {futuresPointValueError && (
+                                <p className="mt-1 text-sm text-yellow-600 dark:text-yellow-400">{futuresPointValueError}</p>
+                              )}
+                              {errors.pointValue && <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.pointValue}</p>}
+                            </div>
+                          </div>
+                        </div>
+                      )}
             </div>
 
             <div>

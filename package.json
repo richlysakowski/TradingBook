@@ -42,7 +42,10 @@
     "build-windows-portable": "npm run build && electron-builder --win portable",
     "build-windows-installer": "npm run build && electron-builder --win nsis",
     "build-windows-both": "npm run build && electron-builder --win nsis portable",
-    "build-all": "npm run build && electron-builder --linux AppImage --win nsis portable"
+    "build-all": "npm run build && electron-builder --linux AppImage --win nsis portable",
+    "pack-portable": "electron-builder --win portable",
+    "pack-installer": "electron-builder --win nsis",
+    "pack-both": "electron-builder --win nsis portable"
   },
   "dependencies": {
     "better-sqlite3": "^12.4.1",

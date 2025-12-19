@@ -1,3 +1,14 @@
+// SymbolStat type for symbolStats rows
+type SymbolStat = {
+  winRate: number;
+  trades: number;
+  pnl: number;
+  wins: number;
+  symbol: string;
+  contractDesc?: string;
+  pointValue?: string | number;
+  contractCurrency?: string;
+};
 import React, { useState, useEffect, useMemo } from 'react';
 import { Trade, PerformanceMetrics } from '../types/Trade';
 import StockChart from './StockChart';
@@ -159,8 +170,8 @@ const Analytics: React.FC<AnalyticsProps> = ({ trades }) => {
     };
   };
 
-  const getSymbolStats = () => {
-    const symbolMap = new Map<string, { trades: number; pnl: number; wins: number }>();
+  const getSymbolStats = (): SymbolStat[] => {
+    const symbolMap = new Map<string, { trades: number; pnl: number; wins: number; contractDesc?: string; pointValue?: string | number; contractCurrency?: string }>();
     
     trades.forEach(trade => {
       if (trade.pnl !== undefined) {
@@ -168,7 +179,10 @@ const Analytics: React.FC<AnalyticsProps> = ({ trades }) => {
         symbolMap.set(trade.symbol, {
           trades: current.trades + 1,
           pnl: current.pnl + trade.pnl,
-          wins: current.wins + (trade.pnl > 0 ? 1 : 0)
+          wins: current.wins + (trade.pnl > 0 ? 1 : 0),
+          contractDesc: (trade as any).contractDesc,
+          pointValue: (trade as any).pointValue,
+          contractCurrency: (trade as any).contractCurrency
         });
       }
     });
@@ -244,7 +258,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ trades }) => {
   };
 
   const winLossStats = getWinLossStats();
-  const symbolStats = getSymbolStats();
+  const symbolStats: SymbolStat[] = getSymbolStats();
   const strategyStats = getStrategyStats();
   const dailyStats = getDailyStats();
 
@@ -691,15 +705,23 @@ const Analytics: React.FC<AnalyticsProps> = ({ trades }) => {
                       <th className="text-right py-2 px-2 text-sm font-medium text-gray-500 dark:text-gray-400">Trades</th>
                       <th className="text-right py-2 px-2 text-sm font-medium text-gray-500 dark:text-gray-400">P&L</th>
                       <th className="text-right py-2 px-2 text-sm font-medium text-gray-500 dark:text-gray-400">Win Rate</th>
+                      <th className="text-right py-2 px-2 text-sm font-medium text-gray-500 dark:text-gray-400">Point Value</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                     {symbolStats.map((stat) => (
                       <tr key={stat.symbol}>
-                        <td className="py-2 px-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 cursor-pointer"
-                            onClick={() => setSelectedSymbol(stat.symbol)}
-                            title="Click to view stock chart">
+                        <td
+                          className="py-2 px-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 cursor-pointer"
+                          onClick={() => setSelectedSymbol(stat.symbol)}
+                          title={stat.contractDesc ? `${stat.contractDesc}` : 'Click to view stock chart'}
+                        >
                           {stat.symbol}
+                          {stat.pointValue && (
+                            <span className="ml-1 text-xs text-blue-700 dark:text-blue-300" title={`Point Value: ${stat.pointValue} ${stat.contractCurrency || ''}`}>
+                              ({stat.pointValue} {stat.contractCurrency || ''})
+                            </span>
+                          )}
                         </td>
                         <td className="py-2 px-2 text-sm text-right text-gray-600 dark:text-gray-400">
                           {stat.trades}
@@ -711,6 +733,9 @@ const Analytics: React.FC<AnalyticsProps> = ({ trades }) => {
                         </td>
                         <td className="py-2 px-2 text-sm text-right text-gray-600 dark:text-gray-400">
                           {stat.winRate.toFixed(1)}%
+                        </td>
+                        <td className="py-2 px-2 text-sm text-right">
+                          {stat.pointValue ? `${stat.pointValue} ${stat.contractCurrency || ''}` : '-'}
                         </td>
                       </tr>
                     ))}

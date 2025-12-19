@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const os = require('os');
 const tar = require('tar');
 
 exports.default = async function afterPack(context) {
@@ -43,7 +44,8 @@ exports.default = async function afterPack(context) {
   console.log(`📥 Downloading Windows binary from: ${binaryUrl}`);
   
   try {
-    const tarPath = path.join(appOutDir, 'better-sqlite3-win32.tar.gz');
+    // Use system temp directory to avoid file lock issues with the archiver
+    const tarPath = path.join(os.tmpdir(), `better-sqlite3-win32-${Date.now()}.tar.gz`);
     
     // Download the tar.gz file
     await downloadFile(binaryUrl, tarPath);
@@ -55,8 +57,12 @@ exports.default = async function afterPack(context) {
       strip: 1
     });
     
-    // Clean up
-    fs.unlinkSync(tarPath);
+    // Clean up temp file
+    try {
+      fs.unlinkSync(tarPath);
+    } catch (cleanupErr) {
+      console.log('⚠️  Could not delete temp file, will be cleaned by OS');
+    }
     
     console.log('✅ Windows better-sqlite3 binary installed successfully');
   } catch (error) {

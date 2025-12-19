@@ -14,47 +14,57 @@ const App: React.FC = () => {
   const [darkMode, setDarkMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Load initial data
-    loadSettings();
-    loadTrades();
-    
-    // Set up electron listeners
-    if (window.electronAPI) {
-      window.electronAPI.onToggleTheme(() => {
-        setDarkMode(prev => !prev);
-      });
+    try {
+      console.log('App mounting, initializing...');
+      // Load initial data
+      loadSettings();
+      loadTrades();
       
-      // Listen for database refresh events for other operations (restore, errors)
-      const handleDatabaseRestored = () => {
-        console.log('Database restored - refreshing data...');
-        loadTrades();
-        loadSettings();
-      };
-      
-      const handleDatabaseError = (error: string) => {
-        console.error('Database error:', error);
-        loadTrades();
-      };
-      
-      // Add event listeners (purge now uses window reload)
-      console.log('Setting up database event listeners...');
-      
-      if (window.electronAPI.onDatabaseRestored) {
-        console.log('Setting up onDatabaseRestored listener');
-        window.electronAPI.onDatabaseRestored(handleDatabaseRestored);
-      }
-      
-      if (window.electronAPI.onDatabaseError) {
-        console.log('Setting up onDatabaseError listener');
-        window.electronAPI.onDatabaseError(handleDatabaseError);
+      // Set up electron listeners
+      if (window.electronAPI) {
+        console.log('electronAPI available, setting up listeners...');
+        window.electronAPI.onToggleTheme(() => {
+          setDarkMode(prev => !prev);
+        });
+        
+        // Listen for database refresh events for other operations (restore, errors)
+        const handleDatabaseRestored = () => {
+          console.log('Database restored - refreshing data...');
+          loadTrades();
+          loadSettings();
+        };
+        
+        const handleDatabaseError = (error: string) => {
+          console.error('Database error:', error);
+          loadTrades();
+        };
+        
+        // Add event listeners (purge now uses window reload)
+        console.log('Setting up database event listeners...');
+        
+        if (window.electronAPI.onDatabaseRestored) {
+          console.log('Setting up onDatabaseRestored listener');
+          window.electronAPI.onDatabaseRestored(handleDatabaseRestored);
+        }
+        
+        if (window.electronAPI.onDatabaseError) {
+          console.log('Setting up onDatabaseError listener');
+          window.electronAPI.onDatabaseError(handleDatabaseError);
+        }
+      } else {
+        console.warn('electronAPI not available (running in browser dev mode)');
       }
       
       return () => {
         // Cleanup listeners if available
-        window.electronAPI.removeDatabaseListeners?.();
+        window.electronAPI?.removeDatabaseListeners?.();
       };
+    } catch (err) {
+      console.error('Error in App initialization:', err);
+      setError(String(err));
     }
   }, []);
 
@@ -99,13 +109,18 @@ const App: React.FC = () => {
 
   const addBulkTrades = async (newTrades: Omit<Trade, 'id'>[]) => {
     try {
+      console.log(`📥 addBulkTrades called with ${newTrades.length} trades`);
       if (window.electronAPI && newTrades.length > 0) {
+        console.log('🔄 Calling saveTradesBulk...');
         // Use bulk save to prevent excessive re-renders and flashing
-        const savedTrades = await window.electronAPI.saveTradesBulk(newTrades);
-        setTrades(prev => [...prev, ...savedTrades]);
+        // Note: electron.js will reload the window after saving, so we don't need to update state here
+        await window.electronAPI.saveTradesBulk(newTrades);
+        console.log('✅ saveTradesBulk completed');
+      } else {
+        console.warn('⚠️ electronAPI not available or no trades to save');
       }
     } catch (error) {
-      console.error('Failed to add bulk trades:', error);
+      console.error('❌ Failed to add bulk trades:', error);
       throw error;
     }
   };
@@ -155,6 +170,25 @@ const App: React.FC = () => {
       }
     }
   };
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-red-50">
+        <div className="text-center p-8 bg-white rounded-lg shadow-lg max-w-2xl">
+          <h1 className="text-2xl font-bold text-red-600 mb-4">App Error</h1>
+          <p className="text-gray-700 mb-4 font-mono text-sm bg-gray-100 p-4 rounded overflow-auto max-h-96">
+            {error}
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            Reload App
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

@@ -1,0 +1,22 @@
+# Real-Time Candlestick Simulation - Python Dependencies
+# 
+# Conda environment: nq_sims_city
+# Create with: conda env create -f environment.yml
+# Or install manually: pip install -r requirements.txt
+
+# Core - Using numpy 2.x (well-supported as of 2024/2025)
+numpy>=2.0.0
+polars>=1.0.0          # Faster than pandas for large datasets
+pandas>=2.0.0          # Still needed for some Streamlit components
+
+# Streamlit and visualization
+streamlit>=1.50.0
+streamlit-echarts>=0.4.0      # pip only - not in conda
+streamlit-autorefresh>=1.0.1  # pip only - not in conda
+streamlit-slickgrid>=1.0.0    # Advanced tabular grid (SlickGrid)
+
+# Database
+# SQLite is built into Python - no additional package needed
+
+# Optional: For Parquet file support with Polars
+pyarrow>=14.0.0

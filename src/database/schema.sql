@@ -1,3 +1,15 @@
+-- Database schema for trading journal application
+
+-- Insert default micro futures contracts (1/10th size of e-minis)
+INSERT OR IGNORE INTO futures_contracts (symbol, description, point_value, currency) VALUES
+('MES', 'Micro S&P 500 E-mini', 5, 'USD'),
+('MNQ', 'Micro Nasdaq 100 E-mini', 2, 'USD'),
+('MYM', 'Micro Dow E-mini', 0.5, 'USD'),
+('M2K', 'Micro Russell 2000 E-mini', 5, 'USD'),
+('MCL', 'Micro Crude Oil', 100, 'USD'),
+('MGC', 'Micro Gold', 10, 'USD'),
+('SIL', 'Micro Silver', 50, 'USD');
+
 -- Trades table
 CREATE TABLE IF NOT EXISTS trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -14,7 +26,30 @@ CREATE TABLE IF NOT EXISTS trades (
     notes TEXT,
     tags TEXT, -- JSON array of tags
     screenshots TEXT, -- JSON array of screenshot paths
-    asset_type TEXT NOT NULL CHECK (asset_type IN ('STOCK', 'OPTION', 'CRYPTO', 'FOREX')),
+    asset_type TEXT NOT NULL CHECK (asset_type IN ('STOCK', 'OPTION', 'CRYPTO', 'FOREX', 'FUTURES')),
+    -- Futures contracts table for point-value mapping
+    CREATE TABLE IF NOT EXISTS futures_contracts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT UNIQUE NOT NULL, -- e.g., ES, NQ, CL
+        description TEXT,
+        point_value REAL NOT NULL, -- e.g., 50 for ES
+        currency TEXT DEFAULT 'USD',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Insert default top 10 futures contracts by volume
+    INSERT OR IGNORE INTO futures_contracts (symbol, description, point_value, currency) VALUES
+    ('ES', 'S&P 500 E-mini', 50, 'USD'),
+    ('NQ', 'Nasdaq 100 E-mini', 20, 'USD'),
+    ('YM', 'Dow E-mini', 5, 'USD'),
+    ('RTY', 'Russell 2000 E-mini', 50, 'USD'),
+    ('CL', 'Crude Oil', 1000, 'USD'),
+    ('GC', 'Gold', 100, 'USD'),
+    ('ZB', '30-Year Treasury', 1000, 'USD'),
+    ('ZN', '10-Year Treasury', 1000, 'USD'),
+    ('6E', 'Euro FX', 125000, 'USD'),
+    ('6J', 'Japanese Yen', 12500, 'USD');
     option_type TEXT CHECK (option_type IN ('CALL', 'PUT')),
     strike_price REAL,
     expiration_date TEXT,
